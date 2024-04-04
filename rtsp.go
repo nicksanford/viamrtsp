@@ -56,7 +56,7 @@ func init() {
 // Config are the config attributes for an RTSP camera model.
 type Config struct {
 	Address          string                             `json:"rtsp_address"`
-	H264Passthrough  bool                               `json:"h264_passthrough"`
+	RTPPassthrough   bool                               `json:"rtp_passthrough"`
 	IntrinsicParams  *transform.PinholeCameraIntrinsics `json:"intrinsic_parameters,omitempty"`
 	DistortionParams *transform.BrownConrady            `json:"distortion_parameters,omitempty"`
 }
@@ -103,7 +103,7 @@ type rtspCamera struct {
 
 	logger logging.Logger
 
-	h264Passthrough bool
+	rtpH264Passthrough bool
 
 	subsMu       sync.RWMutex
 	subAndCBByID map[camera.StreamSubscriptionID]subAndCB
@@ -308,7 +308,7 @@ func (rc *rtspCamera) initH264(session *description.Session) (err error) {
 		storeImage(pkt)
 	}
 
-	if rc.h264Passthrough {
+	if rc.rtpH264Passthrough {
 		fp, err := formatprocessor.New(1472, f, true)
 		if err != nil {
 			return err
@@ -358,8 +358,8 @@ func (rc *rtspCamera) initH264(session *description.Session) (err error) {
 
 // initH265 initializes the H265 decoder and sets up the client to receive H265 packets.
 func (rc *rtspCamera) initH265(session *description.Session) (err error) {
-	if rc.h264Passthrough {
-		return errors.New("address reports to have only an h265 track but H264Passthrough was enabled")
+	if rc.rtpH264Passthrough {
+		return errors.New("address reports to have only an h265 track but rtpH264Passthrough was enabled")
 	}
 	var f *format.H265
 
@@ -441,7 +441,7 @@ func (rc *rtspCamera) initH265(session *description.Session) (err error) {
 // TODO: detect the codec in the constructor & reject SubscribeRTP calls if the codec is not h264
 
 func (rc *rtspCamera) SubscribeRTP(ctx context.Context, bufferSize int, packetsCB camera.PacketCallback) (camera.StreamSubscriptionID, error) {
-	if !rc.h264Passthrough {
+	if !rc.rtpH264Passthrough {
 		return uuid.Nil, ErrH264PassthroughNotEnabled
 	}
 
@@ -531,10 +531,10 @@ func newRTSPCamera(ctx context.Context, name resource.Name, conf *Config, logger
 		return nil, err
 	}
 	rtspCam := &rtspCamera{
-		u:               u,
-		h264Passthrough: conf.H264Passthrough,
-		subAndCBByID:    make(map[camera.StreamSubscriptionID]subAndCB),
-		logger:          logger,
+		u:                  u,
+		rtpH264Passthrough: conf.RTPPassthrough,
+		subAndCBByID:       make(map[camera.StreamSubscriptionID]subAndCB),
+		logger:             logger,
 	}
 	err = rtspCam.reconnectClient()
 	if err != nil {
