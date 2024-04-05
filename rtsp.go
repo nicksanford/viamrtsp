@@ -27,6 +27,7 @@ import (
 	goutils "go.viam.com/utils"
 
 	"go.viam.com/rdk/components/camera"
+	"go.viam.com/rdk/components/camera/rtppassthrough"
 	"go.viam.com/rdk/gostream"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/rdk/resource"
@@ -83,7 +84,7 @@ func (conf *Config) Validate(path string) ([]string, error) {
 type unitSubscriberFunc func(unit.Unit) error
 type subAndCB struct {
 	cb  unitSubscriberFunc
-	sub *camera.StreamSubscription
+	sub *rtppassthrough.StreamSubscription
 }
 
 // rtspCamera contains the rtsp client, and the reader function that fulfills the camera interface.
@@ -106,7 +107,7 @@ type rtspCamera struct {
 	rtpH264Passthrough bool
 
 	subsMu       sync.RWMutex
-	subAndCBByID map[camera.StreamSubscriptionID]subAndCB
+	subAndCBByID map[rtppassthrough.SubscriptionID]subAndCB
 }
 
 // Close closes the camera. It always returns nil, but because of Close() interface, it needs to return an error.
@@ -440,12 +441,12 @@ func (rc *rtspCamera) initH265(session *description.Session) (err error) {
 
 // TODO: detect the codec in the constructor & reject SubscribeRTP calls if the codec is not h264
 
-func (rc *rtspCamera) SubscribeRTP(ctx context.Context, bufferSize int, packetsCB camera.PacketCallback) (camera.StreamSubscriptionID, error) {
+func (rc *rtspCamera) SubscribeRTP(ctx context.Context, bufferSize int, packetsCB rtppassthrough.PacketCallback) (rtppassthrough.SubscriptionID, error) {
 	if !rc.rtpH264Passthrough {
 		return uuid.Nil, ErrH264PassthroughNotEnabled
 	}
 
-	sub, err := camera.NewStreamSubscription(bufferSize, func(err error) { rc.logger.Errorw("stream subscription hit error", "err", err) })
+	sub, err := rtppassthrough.NewStreamSubscription(bufferSize, func(err error) { rc.logger.Errorw("stream subscription hit error", "err", err) })
 	if err != nil {
 		return uuid.Nil, err
 	}
@@ -513,7 +514,7 @@ func (rc *rtspCamera) SubscribeRTP(ctx context.Context, bufferSize int, packetsC
 }
 
 // Unsubscribe deregisters the StreamSubscription's callback.
-func (rc *rtspCamera) Unsubscribe(ctx context.Context, id camera.StreamSubscriptionID) error {
+func (rc *rtspCamera) Unsubscribe(ctx context.Context, id rtppassthrough.SubscriptionID) error {
 	rc.subsMu.Lock()
 	defer rc.subsMu.Unlock()
 	subAndCB, ok := rc.subAndCBByID[id]
@@ -533,7 +534,7 @@ func newRTSPCamera(ctx context.Context, name resource.Name, conf *Config, logger
 	rtspCam := &rtspCamera{
 		u:                  u,
 		rtpH264Passthrough: conf.RTPPassthrough,
-		subAndCBByID:       make(map[camera.StreamSubscriptionID]subAndCB),
+		subAndCBByID:       make(map[rtppassthrough.SubscriptionID]subAndCB),
 		logger:             logger,
 	}
 	err = rtspCam.reconnectClient()

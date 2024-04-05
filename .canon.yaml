@@ -8,7 +8,7 @@ rtsp:
     user: testbot
     group: testbot
 
-viam-rdk-antique:
+viam-rtsp-antique:
     image_amd64: ghcr.io/viamrobotics/antique2:amd64-cache
     image_arm64: ghcr.io/viamrobotics/antique2:arm64-cache
     image_arm: ghcr.io/viamrobotics/antique2:armhf-cache

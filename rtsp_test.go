@@ -20,6 +20,7 @@ import (
 	"go.viam.com/utils"
 
 	"go.viam.com/rdk/components/camera"
+	"go.viam.com/rdk/components/camera/rtppassthrough"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/rdk/resource"
 	"go.viam.com/rdk/rimage/transform"
@@ -41,7 +42,7 @@ func TestRTSPCamera(t *testing.T) {
 		t.Run("init", func(t *testing.T) {
 			h, closeFunc := newH264ServerHandler(t, forma, bURL, logger)
 			test.That(t, h.s.Start(), test.ShouldBeNil)
-			rtspConf := &Config{Address: "rtsp://" + h.s.RTSPAddress, H264Passthrough: true}
+			rtspConf := &Config{Address: "rtsp://" + h.s.RTSPAddress, RTPPassthrough: true}
 			timeoutCtx, timeoutCancel := context.WithTimeout(context.Background(), time.Second*10)
 			defer timeoutCancel()
 			rtspCam, err := newRTSPCamera(timeoutCtx, resource.Name{Name: "foo"}, rtspConf, logger)
@@ -55,7 +56,7 @@ func TestRTSPCamera(t *testing.T) {
 			h, closeFunc := newH264ServerHandler(t, forma, bURL, logger)
 			defer closeFunc()
 			test.That(t, h.s.Start(), test.ShouldBeNil)
-			rtspConf := &Config{Address: "rtsp://" + h.s.RTSPAddress, H264Passthrough: true}
+			rtspConf := &Config{Address: "rtsp://" + h.s.RTSPAddress, RTPPassthrough: true}
 			timeoutCtx, timeoutCancel := context.WithTimeout(context.Background(), time.Second*10)
 			defer timeoutCancel()
 			rtspCam, err := newRTSPCamera(timeoutCtx, resource.Name{Name: "foo"}, rtspConf, logger)
@@ -80,19 +81,18 @@ func TestRTSPCamera(t *testing.T) {
 		})
 
 		t.Run("VideoCodecStream", func(t *testing.T) {
-			t.Run("H264Passthrough", func(t *testing.T) {
+			t.Run("RTPPassthrough", func(t *testing.T) {
 				h, closeFunc := newH264ServerHandler(t, forma, bURL, logger)
 				defer closeFunc()
 				test.That(t, h.s.Start(), test.ShouldBeNil)
-				rtspConf := &Config{Address: "rtsp://" + h.s.RTSPAddress, H264Passthrough: true}
+				rtspConf := &Config{Address: "rtsp://" + h.s.RTSPAddress, RTPPassthrough: true}
 				timeoutCtx, timeoutCancel := context.WithTimeout(context.Background(), time.Second*10)
 				defer timeoutCancel()
 				rtspCam, err := newRTSPCamera(timeoutCtx, resource.Name{Name: "foo"}, rtspConf, logger)
 				test.That(t, err, test.ShouldBeNil)
 				defer func() { test.That(t, rtspCam.Close(context.Background()), test.ShouldBeNil) }()
-				vcs, err := rtspCam.VideoCodecStreamSource(context.Background())
-				test.That(t, err, test.ShouldBeNil)
-				test.That(t, vcs, test.ShouldNotBeNil)
+				vcs, ok := rtspCam.(rtppassthrough.Source)
+				test.That(t, ok, test.ShouldBeTrue)
 				cancelCtx, cancel := context.WithCancel(context.Background())
 				id, err := vcs.SubscribeRTP(timeoutCtx, 512, func(pkts []*rtp.Packet) error {
 					if len(pkts) > 0 {
@@ -126,9 +126,8 @@ func TestRTSPCamera(t *testing.T) {
 				rtspCam, err := newRTSPCamera(timeoutCtx, resource.Name{Name: "foo"}, rtspConf, logger)
 				test.That(t, err, test.ShouldBeNil)
 				defer func() { test.That(t, rtspCam.Close(context.Background()), test.ShouldBeNil) }()
-				vcs, err := rtspCam.VideoCodecStreamSource(context.Background())
-				test.That(t, err, test.ShouldBeNil)
-				test.That(t, vcs, test.ShouldNotBeNil)
+				vcs, ok := rtspCam.(rtppassthrough.Source)
+				test.That(t, ok, test.ShouldBeTrue)
 				_, err = vcs.SubscribeRTP(timeoutCtx, 512, func(pkts []*rtp.Packet) error {
 					t.Log("should not happen")
 					t.FailNow()
