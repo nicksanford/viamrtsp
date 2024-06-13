@@ -66,6 +66,7 @@ module: $(BIN_OUTPUT_PATH)/viamrtsp
 	cp $(BIN_OUTPUT_PATH)/viamrtsp bin/viamrtsp
 	tar czf $(BIN_OUTPUT_PATH)/module.tar.gz bin/viamrtsp
 	rm bin/viamrtsp
+	mv $(BIN_OUTPUT_PATH)/module.tar.gz module.tar.gz
 
 clean:
 	rm -rf $(BIN_OUTPUT_PATH)/viamrtsp $(BIN_OUTPUT_PATH)/module.tar.gz
