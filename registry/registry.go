@@ -14,7 +14,7 @@ type Mux interface {
 	// Start starts saving an rtsp stream's video
 	Start(codec videostore.CodecType, initialParameters [][]byte) error
 	// WritePacket writes a packet
-	WritePacket(codec videostore.CodecType, au [][]byte, pts int64) error
+	WritePacket(codec videostore.CodecType, au [][]byte, pts int64, width, height int) error
 	// Stop stops the mux so any resources taken during Start can be released
 	Stop() error
 }

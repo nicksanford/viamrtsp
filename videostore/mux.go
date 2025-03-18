@@ -50,6 +50,8 @@ type rawSegmenterMux struct {
 var codecs = []videostore.CodecType{
 	videostore.CodecTypeH265,
 	videostore.CodecTypeH264,
+	videostore.CodecTypeMPEG4,
+	videostore.CodecTypeMJPEG,
 }
 
 func newRawSegmenterMux(rawSeg *videostore.RawSegmenter, camName resource.Name, logger logging.Logger) *rawSegmenterMux {
@@ -250,6 +252,8 @@ func (m *rawSegmenterMux) Start(codec videostore.CodecType, au [][]byte) error {
 				return errors.New("invalid nalu")
 			}
 		}
+	case videostore.CodecTypeMPEG4:
+	case videostore.CodecTypeMJPEG:
 	case videostore.CodecTypeUnknown:
 		fallthrough
 	default:
@@ -259,7 +263,7 @@ func (m *rawSegmenterMux) Start(codec videostore.CodecType, au [][]byte) error {
 	return nil
 }
 
-func (m *rawSegmenterMux) WritePacket(codec videostore.CodecType, au [][]byte, pts int64) error {
+func (m *rawSegmenterMux) WritePacket(codec videostore.CodecType, au [][]byte, pts int64, width, height int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if vsCodec := videostore.CodecType(m.codec.Load()); vsCodec == videostore.CodecTypeUnknown {
@@ -275,6 +279,10 @@ func (m *rawSegmenterMux) WritePacket(codec videostore.CodecType, au [][]byte, p
 		return m.writeH264(au, pts)
 	case videostore.CodecTypeH265:
 		return m.writeH265(au, pts)
+	case videostore.CodecTypeMPEG4:
+		return m.writeMpeg4(au, pts, width, height)
+	case videostore.CodecTypeMJPEG:
+		return m.writeMjpeg(au, pts, width, height)
 	case videostore.CodecTypeUnknown:
 		fallthrough
 	default:
@@ -290,6 +298,38 @@ func (m *rawSegmenterMux) Stop() error {
 	}
 	m.codec.Store(int64(videostore.CodecTypeUnknown))
 	m.metadata = metadata{}
+	return nil
+}
+
+func (m *rawSegmenterMux) writeMpeg4(frames [][]byte, pts int64, width, height int) error {
+	if err := m.maybeReInitFrameVideoStore(width, height); err != nil {
+		m.logger.Debugf("unable to init video store: %s", err.Error())
+		return nil
+	}
+
+	for _, frame := range frames {
+		err := m.rawSeg.WritePacket(frame, pts, pts, true)
+		if err != nil {
+			m.logger.Errorf("error writing packet to segmenter: %s", err)
+		}
+
+	}
+	return nil
+}
+
+func (m *rawSegmenterMux) writeMjpeg(frames [][]byte, pts int64, width, height int) error {
+	if err := m.maybeReInitFrameVideoStore(width, height); err != nil {
+		m.logger.Debugf("unable to init video store: %s", err.Error())
+		return nil
+	}
+
+	for _, frame := range frames {
+		err := m.rawSeg.WritePacket(frame, pts, pts, true)
+		if err != nil {
+			m.logger.Errorf("error writing packet to segmenter: %s", err)
+		}
+
+	}
 	return nil
 }
 
@@ -362,7 +402,7 @@ func (m *rawSegmenterMux) writeH265(au [][]byte, pts int64) error {
 		return nil
 	}
 
-	if err := m.maybeReInitVideoStore(); err != nil {
+	if err := m.maybeReInitH26XVideoStore(); err != nil {
 		return err
 	}
 
@@ -470,7 +510,7 @@ func (m *rawSegmenterMux) writeH264(au [][]byte, pts int64) error {
 		return nil
 	}
 
-	if err := m.maybeReInitVideoStore(); err != nil {
+	if err := m.maybeReInitH26XVideoStore(); err != nil {
 		m.logger.Debugf("unable to init video store: %s", err.Error())
 		return nil
 	}
@@ -516,8 +556,63 @@ func (m *rawSegmenterMux) writeH264(au [][]byte, pts int64) error {
 	return nil
 }
 
-// // maybeReInitVideoStore assumes mu is held by caller.
-func (m *rawSegmenterMux) maybeReInitVideoStore() error {
+// maybeReInitFrameVideoStore assumes mu is held by caller.
+func (m *rawSegmenterMux) maybeReInitFrameVideoStore(width, height int) error {
+	// if m.metadata.spsUnChanged {
+	// 	return nil
+	// }
+	// var width, height int
+	codec := videostore.CodecType(m.codec.Load())
+	// switch codec {
+	// case videostore.CodecTypeH265:
+	// 	var hsps h265.SPS
+	// 	if err := hsps.Unmarshal(m.metadata.sps); err != nil {
+	// 		m.logger.Debugf("unable to init video store: %s", err.Error())
+	// 		return nil
+	// 	}
+	// 	width, height = hsps.Width(), hsps.Height()
+	// case videostore.CodecTypeH264:
+	// 	var hsps h264.SPS
+	// 	if err := hsps.Unmarshal(m.metadata.sps); err != nil {
+	// 		m.logger.Debugf("unable to init video store: %s", err.Error())
+	// 		return nil
+	// 	}
+	// 	width, height = hsps.Width(), hsps.Height()
+	// case videostore.CodecTypeUnknown:
+	// 	fallthrough
+	// default:
+	// 	return errors.New("invalid videostore.CodecType")
+	// }
+
+	if width <= 0 || height <= 0 {
+		err := errors.New("width and height must both be greater than 0")
+		m.logger.Infof("unable to init video store: %s", err.Error())
+		return nil
+	}
+	// if vs is initialized and the height & width have not changed,
+	// record the sps as unchanged and return
+	if m.metadata.width == width && m.metadata.height == height {
+		return nil
+	}
+
+	// if initialized and the height & width have changed,
+	// close and nil out the videostore
+	if err := m.rawSeg.Close(); err != nil {
+		return err
+	}
+
+	if err := m.rawSeg.Init(codec, width, height); err != nil {
+		return err
+	}
+
+	m.metadata.width = width
+	m.metadata.height = height
+	m.metadata.spsUnChanged = true
+	return nil
+}
+
+// maybeReInitH26XVideoStore assumes mu is held by caller.
+func (m *rawSegmenterMux) maybeReInitH26XVideoStore() error {
 	if m.metadata.spsUnChanged {
 		return nil
 	}

@@ -587,8 +587,10 @@ func (rc *rtspCamera) initH264(session *description.Session) (err error) {
 }
 
 var codecToCodecType = map[videoCodec]videostore.CodecType{
-	H264: videostore.CodecTypeH264,
-	H265: videostore.CodecTypeH264,
+	H264:  videostore.CodecTypeH264,
+	H265:  videostore.CodecTypeH264,
+	MPEG4: videostore.CodecTypeMPEG4,
+	MJPEG: videostore.CodecTypeMJPEG,
 }
 
 func (rc *rtspCamera) RequestVideo(mux registry.Mux, codecCandiates []videostore.CodecType) (context.Context, error) {
@@ -853,11 +855,6 @@ func (rc *rtspCamera) initMPEG4(session *description.Session) error {
 			"lazy_decode features disabled due to MPEG4 RTSP track")
 	}
 
-	if rc.videoRequest.active() {
-		rc.logger.Warn("video-store is currently only supported for H264 and H265 codecs. " +
-			"unable to store video due to MPEG4 RTSP track")
-	}
-
 	var f *format.MPEG4Video
 	media := session.FindFormat(&f)
 	var err error
@@ -881,6 +878,7 @@ func (rc *rtspCamera) initMPEG4(session *description.Session) error {
 	}
 
 	// Initialize the rawDecoder with MPEG4 config data
+	var params [][]byte
 	if f.Config != nil {
 		// Prepend MPEG4 Visual Object Sequence (VOS) and Video Object (VO) start codes
 		vosStart := []byte{0x00, 0x00, 0x01, 0xB0}
@@ -904,7 +902,16 @@ func (rc *rtspCamera) initMPEG4(session *description.Session) error {
 		return fmt.Errorf("when calling RTSP Setup on %s for MPEG4: %w", session.BaseURL, err)
 	}
 
+	var (
+		width, height  int
+		widthHeightSet bool
+	)
 	rc.client.OnPacketRTP(media, f, func(pkt *rtp.Packet) {
+		pts, ok := rc.client.PacketPTS2(media, pkt)
+		if !ok {
+			rc.logger.Debug("no pts found for packet")
+			return
+		}
 		frame, err := mpeg4Decoder.Decode(pkt)
 		if err != nil {
 			return
@@ -912,8 +919,19 @@ func (rc *rtspCamera) initMPEG4(session *description.Session) error {
 
 		if frame != nil {
 			if decodedFrame, err := rc.rawDecoder.decode(frame); err == nil && decodedFrame != nil {
+				if decodedFrame.frame != nil {
+					if !widthHeightSet {
+						widthHeightSet = true
+
+					}
+					width, height = int(decodedFrame.frame.width), int(decodedFrame.frame.height)
+				}
+
 				rc.handleLatestFrame(decodedFrame)
 			}
+		}
+		if widthHeightSet {
+			rc.videoRequest.writeWidthHeigh(videostore.CodecTypeMPEG4, params, [][]byte{frame}, pts, width, height)
 		}
 	})
 

@@ -67,7 +67,26 @@ func (vr *videoRequest) write(codec videostore.CodecType, initialParameters [][]
 		}
 		vr.started = true
 	}
-	if err := vr.mux.WritePacket(codec, au, pts); err != nil {
+	if err := vr.mux.WritePacket(codec, au, pts, 0, 0); err != nil {
+		vr.logger.Errorf("codec: %s, videostore WritePacket returned error, err: %s", codec, err.Error())
+	}
+}
+
+func (vr *videoRequest) writeWidthHeigh(codec videostore.CodecType, initialParameters [][]byte, au [][]byte, pts int64, width, height int) {
+	vr.mu.Lock()
+	defer vr.mu.Unlock()
+	if vr.mux == nil {
+		return
+	}
+
+	if !vr.started {
+		if err := vr.mux.Start(codec, initialParameters); err != nil {
+			vr.logger.Errorf("codec: %s, failed to start Mux: %s", codec, err.Error())
+			return
+		}
+		vr.started = true
+	}
+	if err := vr.mux.WritePacket(codec, au, pts, width, height); err != nil {
 		vr.logger.Errorf("codec: %s, videostore WritePacket returned error, err: %s", codec, err.Error())
 	}
 }
